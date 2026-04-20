@@ -1,0 +1,11 @@
+[Server]
+program_path = "/nix/store/a4glpqz348pkzjzmybwm3w78h4lfzgrf-1password-cli/bin/1password-cli"
+socket_path = "/run/socket-secrets.socket"
+
+[Client]
+vault = "6vwf4emfndza4otmqjnh5s757u"
+socket_path = "/run/socket-secrets/socket-secrets.socket"
+
+[Pinentry]
+log_file = "/home/mike/projects/nixos/pinentry_client.log"
+log_enabled = "true"
