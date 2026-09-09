@@ -11,10 +11,18 @@ keywords = ["cli"]
 categories = ["cli"]
 
 [dependencies]
+decoder_macros = { path = "decoder_macros" }
+base64 = "0.22.1"
 clap = { version = "4.5.51", features = ["derive"] }
+futures = "0.3.32"
+interprocess = { version = "2.4.2", features = ["tokio"] }
 lazy-regex = "3.4.2"
+log = "0.4.29"
+pretty_env_logger = "0.5.0"
 regex = "1.12.2"
+service-binding = "3.0.0"
 signal-hook = "0.3.18"
+ssh-agent-lib = "0.5.2"
 tokio = { version = "1.48.0", features = [
   "fs",
   "full",
@@ -23,6 +31,9 @@ tokio = { version = "1.48.0", features = [
   "signal",
   "sync",
 ] }
+tokio-util = "0.7.18"
+windows-sys = "0.61.2"
+syn = { version = "2.0.117", features = ["extra-traits"] }
 
 [[bin]]
 name = "gpg-bridge"

@@ -1,2 +1,7 @@
 [toolchain]
 channel = "stable"
+profile = "default"
+components = [ "rustfmt", "clippy", "rust-analyzer", "rust-src" ]
+targets = [
+    "x86_64-pc-windows-gnu",
+]
