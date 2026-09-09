@@ -5,6 +5,8 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 use tokio::process::Command;
 use tokio::time::{Instant, sleep, timeout};
 use zeroize::Zeroizing;
@@ -41,6 +43,13 @@ pub enum AgentError {
     },
     #[error("timed out connecting to the local Gpg4win agent")]
     ConnectTimeout,
+    #[cfg(unix)]
+    #[error("failed to connect to the local Unix GnuPG agent socket {path}: {source}")]
+    UnixConnect {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("failed to start gpg-agent: {source}")]
     Start {
         #[source]
@@ -132,16 +141,29 @@ async fn start_agent() -> Result<(), AgentError> {
     }
 }
 
-/// Connects a newly accepted bridge session to Gpg4win's restricted extra socket.
+/// A connected local agent stream.
+pub enum AgentStream {
+    /// A Gpg4win loopback connection after its nonce preface.
+    Gpg4win(TcpStream),
+    /// A direct Unix `GnuPG` extra-socket connection.
+    #[cfg(unix)]
+    Unix(UnixStream),
+}
+
+/// Connects a newly accepted bridge session to a configured local agent backend.
 #[derive(Clone, Debug)]
-pub struct AgentConnector {
-    redirect_file: PathBuf,
+pub enum AgentConnector {
+    /// The Gpg4win redirect-file backend.
+    Gpg4winRedirect { redirect_file: PathBuf },
+    /// A direct Unix `GnuPG` extra socket backend.
+    #[cfg(unix)]
+    UnixSocket { socket: PathBuf },
 }
 
 impl AgentConnector {
     #[must_use]
-    pub fn new(redirect_file: PathBuf) -> Self {
-        Self { redirect_file }
+    pub fn gpg4win(redirect_file: PathBuf) -> Self {
+        Self::Gpg4winRedirect { redirect_file }
     }
 
     /// Connects after refreshing the redirect metadata for this session.
@@ -149,11 +171,25 @@ impl AgentConnector {
     /// # Errors
     ///
     /// Returns metadata, startup, connection, or nonce-write failures.
-    pub async fn connect(&self) -> Result<TcpStream, AgentError> {
+    pub async fn connect(&self) -> Result<AgentStream, AgentError> {
+        match self {
+            Self::Gpg4winRedirect { redirect_file } => Self::connect_gpg4win(redirect_file).await,
+            #[cfg(unix)]
+            Self::UnixSocket { socket } => UnixStream::connect(socket)
+                .await
+                .map(AgentStream::Unix)
+                .map_err(|source| AgentError::UnixConnect {
+                    path: socket.clone(),
+                    source,
+                }),
+        }
+    }
+
+    async fn connect_gpg4win(redirect_file: &Path) -> Result<AgentStream, AgentError> {
         let deadline = Instant::now() + AGENT_STARTUP_WINDOW;
         let mut last_error;
         loop {
-            match load_metadata(&self.redirect_file).await {
+            match load_metadata(redirect_file).await {
                 Ok(metadata) => match timeout(
                     AGENT_CONNECT_TIMEOUT,
                     TcpStream::connect(("127.0.0.1", metadata.port)),
@@ -169,7 +205,7 @@ impl AgentConnector {
                             .flush()
                             .await
                             .map_err(|source| AgentError::Connect { source })?;
-                        return Ok(stream);
+                        return Ok(AgentStream::Gpg4win(stream));
                     }
                     Ok(Err(source)) => last_error = AgentError::Connect { source },
                     Err(_) => last_error = AgentError::ConnectTimeout,
@@ -243,7 +279,7 @@ mod tests {
             stream.read_exact(&mut received).await.expect("nonce");
             received
         });
-        let _stream = AgentConnector::new(redirect)
+        let _stream = AgentConnector::gpg4win(redirect)
             .connect()
             .await
             .expect("connect agent");
@@ -269,7 +305,7 @@ mod tests {
             stream.read_exact(&mut nonce).await.expect("first nonce");
             nonce
         });
-        let connector = AgentConnector::new(redirect.clone());
+        let connector = AgentConnector::gpg4win(redirect.clone());
         drop(connector.connect().await.expect("first session"));
         assert_eq!(first_task.await.expect("first task"), [1; 16]);
 

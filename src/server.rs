@@ -11,10 +11,10 @@ use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_rustls::TlsAcceptor;
 
-use crate::ServerOptions;
-use crate::agent::AgentConnector;
+use crate::agent::{AgentConnector, AgentStream};
 use crate::relay;
 use crate::tls::{self, TlsError};
+use crate::{ServerAgent, ServerOptions};
 
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const TASK_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -41,7 +41,7 @@ async fn session(
     stream: TcpStream,
     acceptor: TlsAcceptor,
     connector: AgentConnector,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) {
     configure_tcp(&stream);
     let tls_stream = match timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
@@ -59,14 +59,27 @@ async fn session(
         warn!("TLS session rejected: {error}");
         return;
     }
-    let mut agent = match connector.connect().await {
+    let agent = match connector.connect().await {
         Ok(stream) => stream,
         Err(error) => {
             warn!("agent session setup failed: {error}");
             return;
         }
     };
-    let mut tls_stream = tls_stream;
+    match agent {
+        AgentStream::Gpg4win(agent) => relay_agent(tls_stream, agent, shutdown).await,
+        #[cfg(unix)]
+        AgentStream::Unix(agent) => relay_agent(tls_stream, agent, shutdown).await,
+    }
+}
+
+async fn relay_agent<S>(
+    mut tls_stream: tokio_rustls::server::TlsStream<TcpStream>,
+    mut agent: S,
+    mut shutdown: watch::Receiver<bool>,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     match relay::relay(&mut tls_stream, &mut agent, &mut shutdown).await {
         Ok(stats) => info!(
             "TLS session completed: sent {} bytes and received {} bytes",
@@ -99,7 +112,11 @@ pub async fn run_server_until(
         listener.local_addr().map_err(ServerError::Bind)?
     );
     let acceptor = TlsAcceptor::from(Arc::new(config));
-    let connector = AgentConnector::new(options.agent_extra_socket);
+    let connector = match options.agent {
+        ServerAgent::Gpg4winRedirect(path) => AgentConnector::gpg4win(path),
+        #[cfg(unix)]
+        ServerAgent::UnixSocket(path) => AgentConnector::UnixSocket { socket: path },
+    };
     let permits = Arc::new(Semaphore::new(options.max_connections.get()));
     let mut sessions = JoinSet::new();
     loop {

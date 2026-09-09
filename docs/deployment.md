@@ -8,6 +8,10 @@ Allow only the selected TCP port in Windows Firewall and restrict permitted sour
 
 The `--agent-extra-socket` value is Gpg4win's redirection file for the restricted extra socket. The server reloads it for each new session, so a later request can recover after a Gpg4win agent restart.
 
+## Unix server backend
+
+For Linux testing or a Unix server deployment, use `server --agent-socket <path>` with a local GnuPG restricted extra socket. This backend opens that Unix socket directly and does not send a Gpg4win nonce. It is mutually exclusive with Windows-only `--agent-extra-socket`; use one backend per server process.
+
 ## Unix client
 
 Stop or reconfigure the local `gpg-agent` before the bridge starts: it must not own the same `--listen-socket`. The socket parent directory must exist. The remote GnuPG home needs public keys used for normal GnuPG operations, but must not receive the private signing/decryption key held on Windows.

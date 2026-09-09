@@ -7,14 +7,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use gpg_bridge::{
-    ClientOptions, ServerOptions, client::run_client_until, server::run_server_until,
+    ClientOptions, ServerAgent, ServerOptions, client::run_client_until, server::run_server_until,
 };
 use rcgen::{
     BasicConstraints, CertificateParams, CertifiedIssuer, ExtendedKeyUsagePurpose, IsCa, KeyPair,
 };
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, UnixStream};
+use tokio::net::{TcpListener, UnixListener, UnixStream};
 use tokio::sync::watch;
 
 struct Materials {
@@ -154,6 +154,64 @@ async fn client_and_server_relay_binary_data_over_mutual_tls() {
         .expect("response timeout")
         .expect("response");
     assert_eq!(reply, [3, 2, 1, 255, 0]);
+    drop(local);
+    agent.await.expect("agent task");
+    client_sender.send(true).expect("stop client");
+    server_sender.send(true).expect("stop server");
+    client.await.expect("client task").expect("client result");
+    server.await.expect("server task").expect("server result");
+}
+
+#[tokio::test]
+async fn client_and_server_relay_through_a_unix_agent_socket() {
+    let materials = materials();
+    let agent_path = materials.directory.path().join("S.gpg-agent.extra");
+    let agent_listener = UnixListener::bind(&agent_path).expect("Unix agent listener");
+    let agent = tokio::spawn(async move {
+        let (mut stream, _) = agent_listener.accept().await.expect("agent accepts bridge");
+        let mut payload = [0; 4];
+        stream.read_exact(&mut payload).await.expect("payload");
+        assert_eq!(payload, [0, 255, 1, 2]);
+        stream.write_all(&[2, 1, 255, 0]).await.expect("response");
+    });
+    let address = unused_loopback_address();
+    let (server_sender, mut server_shutdown) = watch::channel(false);
+    let server_options = ServerOptions::new_with_agent(
+        address,
+        ServerAgent::UnixSocket(agent_path),
+        materials.ca.clone(),
+        materials.server_cert.clone(),
+        materials.server_key.clone(),
+        4,
+    )
+    .expect("server options");
+    let server =
+        tokio::spawn(async move { run_server_until(server_options, &mut server_shutdown).await });
+    let socket = materials.directory.path().join("gpg-agent.sock");
+    let (client_sender, mut client_shutdown) = watch::channel(false);
+    let client_options = ClientOptions::new(
+        socket.clone(),
+        address.to_string(),
+        "server.test".to_owned(),
+        materials.ca.clone(),
+        materials.client_cert.clone(),
+        materials.client_key.clone(),
+        4,
+    )
+    .expect("client options");
+    let client =
+        tokio::spawn(async move { run_client_until(client_options, &mut client_shutdown).await });
+    wait_for_socket(&socket).await;
+    let mut local = UnixStream::connect(&socket)
+        .await
+        .expect("connect client socket");
+    local.write_all(&[0, 255, 1, 2]).await.expect("request");
+    let mut reply = [0; 4];
+    tokio::time::timeout(Duration::from_secs(5), local.read_exact(&mut reply))
+        .await
+        .expect("response timeout")
+        .expect("response");
+    assert_eq!(reply, [2, 1, 255, 0]);
     drop(local);
     agent.await.expect("agent task");
     client_sender.send(true).expect("stop client");

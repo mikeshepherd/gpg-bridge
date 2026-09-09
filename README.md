@@ -10,7 +10,7 @@ The Windows `server` accepts TLS 1.3 clients authenticated by its client CA. The
 
 ## Supported roles
 
-- `server`: Windows, in the interactive user's session where Gpg4win and pinentry run.
+- `server`: Windows, in the interactive user's session where Gpg4win and pinentry run; or Unix with a local GnuPG extra socket for testing and compatible deployments.
 - `client`: Unix only, where it owns the local Unix-domain socket used by remote GnuPG.
 
 See [certificate guidance](docs/certificates.md) and [deployment guidance](docs/deployment.md) before deploying.
@@ -62,6 +62,26 @@ gpg-bridge client \
 ```
 
 The Unix socket parent directory must already exist. The client refuses to replace a live socket, symlink, regular file, or directory, and applies mode `0600` to the socket it owns.
+
+For same-machine Linux testing, run the server against a separate local GnuPG extra socket. Unlike the Windows backend, this direct Unix-socket backend does not use Gpg4win redirect metadata or a nonce:
+
+```sh
+gpg-bridge server \
+  --listen-address 127.0.0.1:4321 \
+  --agent-socket "$HOME/.gnupg/S.gpg-agent.extra" \
+  --client-ca-cert "$HOME/.config/gpg-bridge/client-ca.pem" \
+  --server-cert "$HOME/.config/gpg-bridge/server-cert.pem" \
+  --server-key "$HOME/.config/gpg-bridge/server-key.pem"
+```
+
+For a disposable local mTLS setup around an existing Linux extra socket, run:
+
+```sh
+nix develop --command scripts/local-smoke.sh \
+  --agent-socket "$HOME/.gnupg/S.gpg-agent.extra"
+```
+
+It leaves the agent untouched, prints a `gpg-connect-agent` command for manual testing, and cleans up the bridge processes and temporary certificates on exit. Add `--smoke` to run a harmless `/bye` probe and exit automatically.
 
 ## License
 

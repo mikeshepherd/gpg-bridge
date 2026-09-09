@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 #[cfg(unix)]
 use gpg_bridge::{ClientOptions, client::run_client_until};
-use gpg_bridge::{ServerOptions, run_server};
+use gpg_bridge::{ServerAgent, ServerOptions, run_server};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -48,8 +48,20 @@ pub struct ClientArgs {
 pub struct ServerArgs {
     #[arg(long)]
     listen_address: SocketAddr,
-    #[arg(long)]
-    agent_extra_socket: PathBuf,
+    #[arg(
+        long,
+        required_unless_present = "agent_socket",
+        conflicts_with = "agent_socket"
+    )]
+    agent_extra_socket: Option<PathBuf>,
+    /// Local Unix `GnuPG` extra socket; unavailable on Windows.
+    #[cfg(unix)]
+    #[arg(
+        long,
+        required_unless_present = "agent_extra_socket",
+        conflicts_with = "agent_extra_socket"
+    )]
+    agent_socket: Option<PathBuf>,
     #[arg(long)]
     client_ca_cert: PathBuf,
     #[arg(long)]
@@ -67,9 +79,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cfg.command {
         Command::Server { options } => {
-            run_server(ServerOptions::new(
+            let agent = {
+                #[cfg(unix)]
+                if let Some(socket) = options.agent_socket {
+                    ServerAgent::UnixSocket(socket)
+                } else {
+                    ServerAgent::Gpg4winRedirect(
+                        options.agent_extra_socket.expect("required by Clap"),
+                    )
+                }
+                #[cfg(not(unix))]
+                ServerAgent::Gpg4winRedirect(options.agent_extra_socket.expect("required by Clap"))
+            };
+            run_server(ServerOptions::new_with_agent(
                 options.listen_address,
-                options.agent_extra_socket,
+                agent,
                 options.client_ca_cert,
                 options.server_cert,
                 options.server_key,
