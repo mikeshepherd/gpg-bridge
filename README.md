@@ -1,64 +1,67 @@
 # gpg-bridge
 
-`gpg-bridge` exposes a Gpg4win GnuPG agent redirection socket through a TCP
-listener. It is intended for use with a protected SSH tunnel so a remote Unix
-machine can reach the Windows user's GPG agent.
-
-## Security status
-
-**The TCP transport is currently plaintext and does not authenticate peers. Do
-not expose it directly to an untrusted network.** Use a protected tunnel such
-as the SSH reverse forward described below.
-
-Direct mutual-TLS connectivity, automatic reconnect handling, and a companion
-Unix-socket client are planned but are not implemented yet.
-
-## Prerequisites
-
-- [Nix](https://nixos.org/download/) with flakes enabled for development.
-- Gpg4win/GnuPG running for the interactive Windows user.
-- Access to that user's GPG agent extra-socket redirection file.
-
-## Development
-
-Enter the development shell, then run the usual checks:
-
-```sh
-nix develop
-cargo fmt --all --check
-cargo test --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo check --workspace
-cargo check --workspace --target x86_64-pc-windows-gnu
-```
-
-## Current usage
-
-Run the bridge on the Windows host, replacing the placeholders with the TCP
-address to listen on and the Gpg4win extra-socket redirection-file path:
-
-```sh
-cargo run -- gpg-bridge \
-  --extra <listen-address:port> \
-  --extra-socket <gpg4win-extra-socket-redirection-file>
-```
-
-The bridge reads the redirect file, connects to its local loopback TCP port,
-performs the Gpg4win nonce exchange, and relays traffic between that connection
-and each accepted TCP stream.
-
-The current remote shape is an SSH reverse Unix-socket-to-TCP forward:
+`gpg-bridge` lets a remote Unix host use the restricted Gpg4win extra socket belonging to an interactive Windows user.
 
 ```text
-remote GnuPG -> remote Unix socket -> SSH reverse forward
-    -> Windows gpg-bridge TCP listener -> Gpg4win agent extra socket
+remote GnuPG -> owner-only Unix socket -> mTLS -> Windows bridge -> Gpg4win agent
 ```
 
-For example, configure an SSH reverse forward so a Unix-domain socket on the
-remote host forwards to the bridge's loopback TCP listener on the Windows host.
-The socket path must be the one used by the remote GnuPG client, and the remote
-SSH server must permit remote Unix-socket forwarding. Stop or reconfigure any
-remote `gpg-agent` that already owns that socket before creating the forward.
+The Windows `server` accepts TLS 1.3 clients authenticated by its client CA. The Unix `client` verifies the Windows certificate name and presents its own client certificate. Traffic is opaque GnuPG/Assuan bytes; it is never logged or replayed.
+
+## Supported roles
+
+- `server`: Windows, in the interactive user's session where Gpg4win and pinentry run.
+- `client`: Unix only, where it owns the local Unix-domain socket used by remote GnuPG.
+
+See [certificate guidance](docs/certificates.md) and [deployment guidance](docs/deployment.md) before deploying.
+
+## Security and recovery
+
+There is no plaintext, anonymous-client, or certificate-verification-bypass mode. Correct server-name verification and both certificate chains are essential for confidentiality and MITM protection. Restrict the Windows firewall to expected client networks as well: mTLS does not prevent DoS.
+
+The services survive endpoint outages. While establishing a fresh local GPG session, the client retries transient network failures for up to 60 seconds. After any relay bytes may have crossed a connection, a disconnect fails that local session closed; the next GPG connection starts a new TLS session. An in-flight Assuan session is never replayed or transparently resumed.
+
+## Build and verification
+
+Nix with flakes enabled provides the development environment:
+
+```sh
+nix develop --command cargo fmt --all --check
+nix develop --command cargo test --workspace --all-targets
+nix develop --command cargo clippy --workspace --all-targets -- -D warnings
+nix develop --command cargo check --workspace --target x86_64-pc-windows-gnu
+```
+
+## Quick start
+
+Create separate server and client certificates signed by the appropriate trusted CA; do not copy a private key between hosts. The commands below use placeholders—see the certificate guide for generation and storage.
+
+On Windows, while logged in as the Gpg4win user:
+
+```text
+gpg-bridge server \
+  --listen-address 0.0.0.0:4321 \
+  --agent-extra-socket C:\\path\\to\\S.gpg-agent.extra \
+  --client-ca-cert C:\\path\\to\\client-ca.pem \
+  --server-cert C:\\path\\to\\server-cert.pem \
+  --server-key C:\\path\\to\\server-key.pem \
+  --max-connections 64
+```
+
+On each remote Unix host, after ensuring no local `gpg-agent` owns the target socket:
+
+```sh
+gpg-bridge client \
+  --listen-socket /run/user/$(id -u)/gnupg/S.gpg-agent \
+  --server-address windows-host.example:4321 \
+  --server-name windows-host.example \
+  --server-ca-cert "$HOME/.config/gpg-bridge/server-ca.pem" \
+  --client-cert "$HOME/.config/gpg-bridge/client-cert.pem" \
+  --client-key "$HOME/.config/gpg-bridge/client-key.pem" \
+  --max-connections 64
+```
+
+The Unix socket parent directory must already exist. The client refuses to replace a live socket, symlink, regular file, or directory, and applies mode `0600` to the socket it owns.
 
 ## License
 

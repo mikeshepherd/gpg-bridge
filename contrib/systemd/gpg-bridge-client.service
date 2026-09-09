@@ -1,0 +1,15 @@
+[Unit]
+Description=GPG bridge Unix client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/gpg-bridge/client.env
+ExecStart=/path/to/gpg-bridge client --listen-socket ${GPG_BRIDGE_LISTEN_SOCKET} --server-address ${GPG_BRIDGE_SERVER_ADDRESS} --server-name ${GPG_BRIDGE_SERVER_NAME} --server-ca-cert ${GPG_BRIDGE_SERVER_CA_CERT} --client-cert ${GPG_BRIDGE_CLIENT_CERT} --client-key ${GPG_BRIDGE_CLIENT_KEY} --max-connections 64
+Restart=always
+RestartSec=2s
+UMask=0077
+
+[Install]
+WantedBy=default.target
