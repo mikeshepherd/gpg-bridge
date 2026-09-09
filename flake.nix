@@ -26,7 +26,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, ... }:
+  outputs = { self, nixpkgs, crane, flake-utils, ... }:
       flake-utils.lib.eachDefaultSystem (system:
         let
         rustBuildTargetTriple = "x86_64-pc-windows-gnu";
@@ -52,10 +52,28 @@
           ];
         });
           pkgs = nixpkgs.legacyPackages.${system};
+          craneLib = crane.mkLib pkgs;
+          craneLibCross = crane.mkLib pkgs-cross-mingw;
+          src = craneLib.cleanCargoSource self;
+          commonArgs = {
+            inherit src;
+            strictDeps = true;
+          };
           # Read the file relative to the flake's root
           overrides = (builtins.fromTOML (builtins.readFile (self + "/rust-toolchain.toml")));
         in
         {
+          packages = {
+            default = craneLib.buildPackage (commonArgs // {
+              cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+            });
+          } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+            windows-x86_64 = craneLibCross.buildPackage (commonArgs // {
+              cargoArtifacts = craneLibCross.buildDepsOnly commonArgs;
+              doCheck = false;
+            });
+          };
+
           devShells.default = pkgs.mkShell rec {
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = with pkgs; [
