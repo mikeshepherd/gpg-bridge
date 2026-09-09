@@ -1,25 +1,18 @@
 pub mod agent;
+#[cfg(unix)]
+pub mod client;
 pub mod error;
-mod gpg;
 pub mod relay;
 pub mod retry;
 pub mod server;
 pub mod shutdown;
 pub mod tls;
+#[cfg(unix)]
+pub mod unix_socket;
 
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-
-use tokio::io;
-
-use crate::gpg::gpg_bridge;
-
-#[derive(Clone)]
-pub struct GpgOpts {
-    pub listen_address: String,
-    pub local_gpg_socket_path: String,
-}
 
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
@@ -130,22 +123,6 @@ impl ClientOptions {
             max_connections,
         })
     }
-}
-
-/// A bridge that forwards all requests from certain stream to an agent on Windows.
-///
-/// `local_gpg_socket_path` should point to the path of gnupg UDS.
-/// `listen_address` is a TCP address that will be forwarded over ssh
-/// # Errors
-///
-/// Will return `Err` if there is a failure to connect to the underlying agent
-pub async fn bridge(
-    GpgOpts {
-        listen_address,
-        local_gpg_socket_path,
-    }: GpgOpts,
-) -> io::Result<()> {
-    gpg_bridge(listen_address, local_gpg_socket_path).await
 }
 
 pub use server::run_server;

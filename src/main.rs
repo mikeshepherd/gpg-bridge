@@ -1,5 +1,7 @@
 use clap::{Args, Parser, Subcommand};
-use gpg_bridge::{GpgOpts, ServerOptions, bridge, run_server};
+#[cfg(unix)]
+use gpg_bridge::{ClientOptions, client::run_client_until};
+use gpg_bridge::{ServerOptions, run_server};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -12,14 +14,34 @@ pub struct App {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    GpgBridge {
-        #[clap(flatten)]
-        global_opts: GpgArgs,
-    },
     Server {
         #[clap(flatten)]
         options: ServerArgs,
     },
+    #[cfg(unix)]
+    Client {
+        #[clap(flatten)]
+        options: ClientArgs,
+    },
+}
+
+#[cfg(unix)]
+#[derive(Debug, Args)]
+pub struct ClientArgs {
+    #[arg(long)]
+    listen_socket: PathBuf,
+    #[arg(long)]
+    server_address: String,
+    #[arg(long)]
+    server_name: String,
+    #[arg(long)]
+    server_ca_cert: PathBuf,
+    #[arg(long)]
+    client_cert: PathBuf,
+    #[arg(long)]
+    client_key: PathBuf,
+    #[arg(long, default_value_t = 64)]
+    max_connections: usize,
 }
 
 #[derive(Debug, Args)]
@@ -38,29 +60,12 @@ pub struct ServerArgs {
     max_connections: usize,
 }
 
-#[derive(Debug, Args)]
-pub struct GpgArgs {
-    /// Sets the listenning to bridge the extra socket
-    #[arg(long, value_name("ADDRESS"))]
-    extra: String,
-    /// Sets the path to gnupg extra socket optionaly
-    #[arg(long, value_name("PATH"))]
-    extra_socket: String,
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
     let cfg = App::parse();
 
     match cfg.command {
-        Command::GpgBridge { global_opts: opts } => {
-            bridge(GpgOpts {
-                listen_address: opts.extra,
-                local_gpg_socket_path: opts.extra_socket,
-            })
-            .await?;
-        }
         Command::Server { options } => {
             run_server(ServerOptions::new(
                 options.listen_address,
@@ -70,6 +75,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 options.server_key,
                 options.max_connections,
             )?)
+            .await?;
+        }
+        #[cfg(unix)]
+        Command::Client { options } => {
+            let (sender, mut receiver) = tokio::sync::watch::channel(false);
+            tokio::spawn(async move {
+                let _ = gpg_bridge::shutdown::notify_shutdown(sender).await;
+            });
+            run_client_until(
+                ClientOptions::new(
+                    options.listen_socket,
+                    options.server_address,
+                    options.server_name,
+                    options.server_ca_cert,
+                    options.client_cert,
+                    options.client_key,
+                    options.max_connections,
+                )?,
+                &mut receiver,
+            )
             .await?;
         }
     }
