@@ -30,10 +30,10 @@
       flake-utils.lib.eachDefaultSystem (system:
         let
         rustBuildTargetTriple = "x86_64-pc-windows-gnu";
-        rustBuildHostTriple = "x86_64-unknown-linux-gnu";
 
         # Our windows cross package set.
         pkgs-cross-mingw = import pkgs.path {
+          localSystem = system;
           crossSystem = {
               config = "x86_64-w64-mingw32";
             };
