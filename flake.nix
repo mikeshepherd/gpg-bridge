@@ -41,6 +41,20 @@
             inherit src;
             strictDeps = true;
           };
+          windowsPackage = craneLibCross.buildPackage (commonArgs // {
+            cargoArtifacts = craneLibCross.buildDepsOnly commonArgs;
+            doCheck = false;
+          });
+          windowsArchive = pkgs.runCommand "gpg-bridge-windows-x86_64.zip" {
+            nativeBuildInputs = [ pkgs.zip ];
+          } ''
+            mkdir -p staging/gpg-bridge
+            cp ${windowsPackage}/bin/gpg-bridge.exe staging/gpg-bridge/
+            cp ${self}/contrib/windows/install-service.ps1 staging/gpg-bridge/
+            cp ${self}/contrib/windows/request-step-ca-server-certificate.ps1 staging/gpg-bridge/
+            cd staging
+            zip -X -r "$out" gpg-bridge
+          '';
           # Read the file relative to the flake's root
           overrides = (builtins.fromTOML (builtins.readFile (self + "/rust-toolchain.toml")));
         in
@@ -50,10 +64,8 @@
               cargoArtifacts = craneLib.buildDepsOnly commonArgs;
             });
           } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
-            windows-x86_64 = craneLibCross.buildPackage (commonArgs // {
-              cargoArtifacts = craneLibCross.buildDepsOnly commonArgs;
-              doCheck = false;
-            });
+            windows-x86_64 = windowsPackage;
+            windows-archive = windowsArchive;
           };
 
           devShells.default = pkgs.mkShell rec {

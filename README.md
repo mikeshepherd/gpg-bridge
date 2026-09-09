@@ -15,6 +15,13 @@ The Windows `server` accepts TLS 1.3 clients authenticated by its client CA. The
 
 See [certificate guidance](docs/certificates.md) and [deployment guidance](docs/deployment.md) before deploying.
 
+For an automatic Windows background startup under the Gpg4win user's account,
+see the documented Windows Service Control Manager wrapper.
+
+Build a Windows ZIP containing `gpg-bridge.exe` and the Windows installation
+and Step CA certificate scripts with `nix build .#windows-archive` on an
+`x86_64-linux` host.
+
 ## Security and recovery
 
 There is no plaintext, anonymous-client, or certificate-verification-bypass mode. Correct server-name verification and both certificate chains are essential for confidentiality and MITM protection. Restrict the Windows firewall to expected client networks as well: mTLS does not prevent DoS.

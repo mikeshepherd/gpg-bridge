@@ -6,9 +6,12 @@ pub mod relay;
 pub mod retry;
 pub mod server;
 pub mod shutdown;
+pub mod tailscale;
 pub mod tls;
 #[cfg(unix)]
 pub mod unix_socket;
+#[cfg(windows)]
+pub mod windows_service;
 
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;

@@ -8,6 +8,41 @@ Allow only the selected TCP port in Windows Firewall and restrict permitted sour
 
 The `--agent-extra-socket` value is Gpg4win's redirection file for the restricted extra socket. The server reloads it for each new session, so a later request can recover after a Gpg4win agent restart.
 
+### Windows service wrapper
+
+`gpg-bridge windows-service` is a native Service Control Manager host around
+the ordinary Windows server backend. It accepts SCM Stop controls and drains
+the bridge using the normal shutdown path. It does not start Gpg4win or manage
+pinentry.
+
+Run [install-service.ps1](../contrib/windows/install-service.ps1) manually in
+an elevated PowerShell session. It prompts for the Windows account that owns
+the already-running Gpg4win agent, then creates a service with automatic
+startup. Supply explicit absolute paths for the executable, redirect file,
+certificate material, and key. Do not run it as `LocalSystem`: that account
+will normally be unable to read the interactive user's redirect file.
+
+By default, provide `-ListenAddress <IP:PORT>` and the server binds exactly
+that address. Alternatively, `-TailscaleListenPort <PORT>` adds
+`--tailscale-listen-port` to the service. At each service start, this invokes
+`tailscale ip -4` to find the one active Tailscale IPv4 address and binds it
+to that port. The executable first uses the standard
+`C:\Program Files\Tailscale\tailscale.exe` installation, then falls back to
+`tailscale.exe` on `PATH`. It does not rebind while running; restart the
+service after a Tailscale address change.
+
+To remove the manually installed service, first stop it and then delete it:
+
+```powershell
+Stop-Service -Name gpg-bridge
+sc.exe delete gpg-bridge
+```
+
+An SCM process runs outside the interactive desktop, but the bridge only needs
+the redirect-file read permission and loopback connection to the already
+running agent. Any pinentry dialog remains the Gpg4win agent's responsibility
+in the logged-in user's session.
+
 ## Unix server backend
 
 For Linux testing or a Unix server deployment, use `server --agent-socket <path>` with a local GnuPG restricted extra socket. This backend opens that Unix socket directly and does not send a Gpg4win nonce. It is mutually exclusive with Windows-only `--agent-extra-socket`; use one backend per server process.

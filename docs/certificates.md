@@ -43,3 +43,9 @@ On Windows, store the server private key under the interactive user's profile an
 ## Rotation and lost keys
 
 Certificate material is loaded at process start. Replace files and restart the supervised service to rotate them. There is no CRL, OCSP, or client-certificate allowlist in this initial design. If a client private key is lost, issue a replacement and change the server's trusted client-CA material (normally by rotating to a new client CA) before restarting the Windows service. Deleting the old certificate alone does not revoke it.
+
+## Windows Step CA server certificate
+
+For a Step CA, use [request-step-ca-server-certificate.ps1](../contrib/windows/request-step-ca-server-certificate.ps1) from an elevated PowerShell session. It takes an HTTPS CA URL, the out-of-band verified 64-hex-character root fingerprint, provisioner name, server common name/SANs, and an output directory. If `step` is unavailable, it asks before installing `Smallstep.step` with winget.
+
+The script first fingerprints any existing Step root. When it matches the supplied fingerprint, it preserves both that file and an existing matching Windows trust-store entry; it never deletes or replaces either. If the root is not already trusted, it installs that same existing root. Only when no Step root exists does it run fingerprint-pinned `step ca bootstrap --install`. It then uses Step's PEM-aware verification and inspection commands to validate the issued server-auth certificate. It restricts key access to the selected service account plus SYSTEM and Administrators. It never embeds provisioner credentials; Step prompts according to the provisioner configuration. Pass `-PrivateKeyReadAccount` when the service account differs from the account running the script.
