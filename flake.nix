@@ -3,27 +3,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
-    systemflake = {
-      url = "github:mikeshepherd/nixos?ref=refs/tags/fixed-2025.11.27.1";
-    };
-    devflake = {
-      url = "github:mikeshepherd/devflake";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.systemflake.follows = "systemflake";
-    };
-    nixpkgs-unstable.url = "github:NixOS/nixpkgs/master";
-
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     crane.url = "github:ipetkov/crane";
 
     flake-utils.url = "github:numtide/flake-utils";
-    advisory-db = {
-      url = "github:rustsec/advisory-db";
-      flake = false;
-    };
   };
 
   outputs = { self, nixpkgs, crane, flake-utils, ... }:
