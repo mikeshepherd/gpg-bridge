@@ -299,10 +299,12 @@ dependencies = [
  "pretty_env_logger",
  "rcgen",
  "rustls-pemfile",
+ "socket2",
  "tempfile",
  "thiserror",
  "tokio",
  "tokio-rustls",
+ "zeroize",
 ]
 
 [[package]]

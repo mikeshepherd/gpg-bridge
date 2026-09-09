@@ -1,10 +1,11 @@
+pub mod agent;
 pub mod error;
 mod gpg;
 pub mod relay;
 pub mod retry;
+pub mod server;
 pub mod shutdown;
 pub mod tls;
-mod util;
 
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
@@ -13,12 +14,6 @@ use std::path::PathBuf;
 use tokio::io;
 
 use crate::gpg::gpg_bridge;
-
-#[derive(Clone, Copy)]
-struct AgentMeta {
-    port: u16,
-    nonce: [u8; 16],
-}
 
 #[derive(Clone)]
 pub struct GpgOpts {
@@ -152,3 +147,5 @@ pub async fn bridge(
 ) -> io::Result<()> {
     gpg_bridge(listen_address, local_gpg_socket_path).await
 }
+
+pub use server::run_server;

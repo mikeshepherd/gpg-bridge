@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
-use gpg_bridge::{GpgOpts, bridge};
-use tokio::io;
+use gpg_bridge::{GpgOpts, ServerOptions, bridge, run_server};
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[clap(name = "gpg-bridge", version)]
@@ -15,6 +16,26 @@ enum Command {
         #[clap(flatten)]
         global_opts: GpgArgs,
     },
+    Server {
+        #[clap(flatten)]
+        options: ServerArgs,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ServerArgs {
+    #[arg(long)]
+    listen_address: SocketAddr,
+    #[arg(long)]
+    agent_extra_socket: PathBuf,
+    #[arg(long)]
+    client_ca_cert: PathBuf,
+    #[arg(long)]
+    server_cert: PathBuf,
+    #[arg(long)]
+    server_key: PathBuf,
+    #[arg(long, default_value_t = 64)]
+    max_connections: usize,
 }
 
 #[derive(Debug, Args)]
@@ -28,18 +49,29 @@ pub struct GpgArgs {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
     let cfg = App::parse();
 
     match cfg.command {
         Command::GpgBridge { global_opts: opts } => {
-            println!("Starting gpg-bridge using config {opts:?}");
             bridge(GpgOpts {
                 listen_address: opts.extra,
                 local_gpg_socket_path: opts.extra_socket,
             })
-            .await
+            .await?;
+        }
+        Command::Server { options } => {
+            run_server(ServerOptions::new(
+                options.listen_address,
+                options.agent_extra_socket,
+                options.client_ca_cert,
+                options.server_cert,
+                options.server_key,
+                options.max_connections,
+            )?)
+            .await?;
         }
     }
+    Ok(())
 }
