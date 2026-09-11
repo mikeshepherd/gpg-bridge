@@ -38,6 +38,14 @@ Stop-Service -Name gpg-bridge
 sc.exe delete gpg-bridge
 ```
 
+If Step CA certificate automation is installed, stop and delete its separate
+renewal service too:
+
+```powershell
+Stop-Service -Name gpg-bridge-certificate-renewal
+sc.exe delete gpg-bridge-certificate-renewal
+```
+
 An SCM process runs outside the interactive desktop, but the bridge only needs
 the redirect-file read permission and loopback connection to the already
 running agent. Any pinentry dialog remains the Gpg4win agent's responsibility

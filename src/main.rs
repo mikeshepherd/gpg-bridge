@@ -24,6 +24,12 @@ enum Command {
         #[clap(flatten)]
         options: ServerArgs,
     },
+    /// Run the Windows Service Control Manager host for Step CA certificate renewal.
+    #[cfg(windows)]
+    WindowsRenewalService {
+        #[clap(flatten)]
+        options: WindowsRenewalServiceArgs,
+    },
     #[cfg(unix)]
     Client {
         #[clap(flatten)]
@@ -92,6 +98,31 @@ pub struct ServerArgs {
     server_key: PathBuf,
     #[arg(long, default_value_t = 64)]
     max_connections: usize,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Args)]
+pub struct WindowsRenewalServiceArgs {
+    #[arg(long)]
+    renewal_script: PathBuf,
+    #[arg(long)]
+    step_executable: PathBuf,
+    #[arg(long)]
+    ca_url: String,
+    #[arg(long)]
+    root_ca_cert: PathBuf,
+    #[arg(long)]
+    server_cert: PathBuf,
+    #[arg(long)]
+    server_key: PathBuf,
+    #[arg(long)]
+    expected_dns_name: String,
+    #[arg(long, default_value = "gpg-bridge")]
+    bridge_service_name: String,
+    #[arg(long)]
+    log_path: PathBuf,
+    #[arg(long, default_value_t = 21_600)]
+    renewal_interval_seconds: u64,
 }
 
 #[cfg(unix)]
@@ -165,6 +196,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::WindowsService { options } => {
             let (options, tailscale_listen_port) = server_options(options)?;
             gpg_bridge::windows_service::run(options, tailscale_listen_port)?;
+        }
+        #[cfg(windows)]
+        Command::WindowsRenewalService { options } => {
+            gpg_bridge::windows_renewal_service::run(
+                gpg_bridge::windows_renewal_service::RenewalOptions {
+                    renewal_script: options.renewal_script,
+                    step_executable: options.step_executable,
+                    ca_url: options.ca_url,
+                    root_ca_cert: options.root_ca_cert,
+                    server_cert: options.server_cert,
+                    server_key: options.server_key,
+                    expected_dns_name: options.expected_dns_name,
+                    bridge_service_name: options.bridge_service_name,
+                    log_path: options.log_path,
+                    renewal_interval: std::time::Duration::from_secs(
+                        options.renewal_interval_seconds,
+                    ),
+                },
+            )?;
         }
         #[cfg(unix)]
         Command::Client { options } => {

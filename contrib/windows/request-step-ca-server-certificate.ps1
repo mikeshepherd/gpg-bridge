@@ -131,9 +131,9 @@ if (-not $inspectionJson.extensions.extended_key_usage.server_auth) {
     throw 'Issued certificate does not include the serverAuth EKU required by gpg-bridge.'
 }
 
-& icacls $keyPath /inheritance:r /grant:r "$($PrivateKeyReadAccount):R" 'SYSTEM:R' 'Administrators:R' | Out-Null
+& icacls $keyPath /inheritance:r /grant:r "$($PrivateKeyReadAccount):M" 'SYSTEM:R' 'Administrators:R' | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    throw "Could not restrict private-key ACLs; refusing to leave the key unprotected."
+    throw "Could not set private-key ACLs; refusing to leave the key unprotected."
 }
 Write-Host "Created $certificatePath and $keyPath."
 Write-Host "Use $rootCopyPath as the trusted CA input where appropriate."

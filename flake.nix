@@ -48,12 +48,14 @@
           windowsArchive = pkgs.runCommand "gpg-bridge-windows-x86_64.zip" {
             nativeBuildInputs = [ pkgs.zip ];
           } ''
-            mkdir -p staging/gpg-bridge
-            cp ${windowsPackage}/bin/gpg-bridge.exe staging/gpg-bridge/
-            cp ${self}/contrib/windows/install-service.ps1 staging/gpg-bridge/
-            cp ${self}/contrib/windows/request-step-ca-server-certificate.ps1 staging/gpg-bridge/
+            mkdir -p staging
+            cp ${windowsPackage}/bin/gpg-bridge.exe staging/
+            cp ${self}/contrib/windows/install-service.ps1 staging/
+            cp ${self}/contrib/windows/request-step-ca-server-certificate.ps1 staging/
+            cp ${self}/contrib/windows/renew-step-ca-server-certificate.ps1 staging/
+            cp ${self}/contrib/windows/install-certificate-renewal-service.ps1 staging/
             cd staging
-            zip -X -r "$out" gpg-bridge
+            zip -X -r "$out" .
           '';
           # Read the file relative to the flake's root
           overrides = (builtins.fromTOML (builtins.readFile (self + "/rust-toolchain.toml")));

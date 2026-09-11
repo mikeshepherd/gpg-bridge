@@ -48,4 +48,41 @@ Certificate material is loaded at process start. Replace files and restart the s
 
 For a Step CA, use [request-step-ca-server-certificate.ps1](../contrib/windows/request-step-ca-server-certificate.ps1) from an elevated PowerShell session. It takes an HTTPS CA URL, the out-of-band verified 64-hex-character root fingerprint, provisioner name, server common name/SANs, and an output directory. If `step` is unavailable, it asks before installing `Smallstep.step` with winget.
 
-The script first fingerprints any existing Step root. When it matches the supplied fingerprint, it preserves both that file and an existing matching Windows trust-store entry; it never deletes or replaces either. If the root is not already trusted, it installs that same existing root. Only when no Step root exists does it run fingerprint-pinned `step ca bootstrap --install`. It then uses Step's PEM-aware verification and inspection commands to validate the issued server-auth certificate. It restricts key access to the selected service account plus SYSTEM and Administrators. It never embeds provisioner credentials; Step prompts according to the provisioner configuration. Pass `-PrivateKeyReadAccount` when the service account differs from the account running the script.
+The script first fingerprints any existing Step root. When it matches the supplied fingerprint, it preserves both that file and an existing matching Windows trust-store entry; it never deletes or replaces either. If the root is not already trusted, it installs that same existing root. Only when no Step root exists does it run fingerprint-pinned `step ca bootstrap --install`. It then uses Step's PEM-aware verification and inspection commands to validate the issued server-auth certificate. It grants the selected service account Modify access to the key so it can renew or replace certificate material, while SYSTEM and Administrators retain read-only access. It never embeds provisioner credentials; Step prompts according to the provisioner configuration. Pass `-PrivateKeyReadAccount` when the service account differs from the account running the script.
+
+For a key created by an earlier archive, repair its ACL once from an elevated
+PowerShell session before reissuing:
+
+```powershell
+icacls C:\Users\mikes\gpg-bridge\certificates\server-key.pem /inheritance:r /grant:r 'asus\mikes:M' 'SYSTEM:R' 'Administrators:R'
+```
+
+## Windows Step CA automatic renewal
+
+For an intermittently connected Windows server, first apply the dedicated
+provisioner policy in [the NixOS Step CA handoff](nixos-step-ca-expired-renewal-handoff.md).
+Then install the `gpg-bridge-certificate-renewal` service from an elevated
+PowerShell session. It runs as the same Windows account as Gpg4win and the
+bridge service, renews every six hours by default, validates the replacement
+chain/EKU/DNS SAN, and restarts `gpg-bridge` only after validation succeeds:
+
+```powershell
+.\install-certificate-renewal-service.ps1 `
+  -Executable C:\Users\mikes\gpg-bridge\gpg-bridge.exe `
+  -CaUrl https://ca.example.internal `
+  -RootCaCert C:\Users\mikes\gpg-bridge\certificates\root-ca.pem `
+  -ServerCert C:\Users\mikes\gpg-bridge\certificates\server-cert.pem `
+  -ServerKey C:\Users\mikes\gpg-bridge\certificates\server-key.pem `
+  -ExpectedDnsName asus.tail20bbc.ts.net
+```
+
+The installer resolves `step.exe` to an absolute path so the service does not
+depend on a user PATH. It prompts for service-account credentials unless they
+are supplied; use the same account as the bridge service. It grants that
+account only service-start and service-stop rights on `gpg-bridge`, enabling a
+renewal to reload the certificate without broader service-administration
+permission. Renewal messages and failures are appended to
+`certificate-renewal.log` beside the server certificate. A failed renewal
+leaves the current certificate and running bridge service unchanged; the
+renewal service retries at its next interval. The service can renew an expired
+certificate only when its Step CA provisioner permits renewal after expiry.

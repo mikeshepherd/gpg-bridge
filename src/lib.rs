@@ -11,6 +11,8 @@ pub mod tls;
 #[cfg(unix)]
 pub mod unix_socket;
 #[cfg(windows)]
+pub mod windows_renewal_service;
+#[cfg(windows)]
 pub mod windows_service;
 
 use std::net::SocketAddr;
