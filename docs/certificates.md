@@ -86,3 +86,7 @@ permission. Renewal messages and failures are appended to
 leaves the current certificate and running bridge service unchanged; the
 renewal service retries at its next interval. The service can renew an expired
 certificate only when its Step CA provisioner permits renewal after expiry.
+
+The main bridge service and renewal service use separate log files. Every line
+uses `<unix-seconds> <LEVEL> [<component>] <message>`; the component identifies
+the bridge service, renewal service, or renewal script that wrote it.

@@ -1,6 +1,8 @@
 //! Windows Tailscale address discovery for the optional server listener mode.
 
 use std::net::Ipv4Addr;
+#[cfg(windows)]
+use std::time::Duration;
 
 #[cfg(windows)]
 use std::net::{IpAddr, SocketAddr};
@@ -21,6 +23,9 @@ pub enum TailscaleError {
     #[cfg(windows)]
     #[error("Tailscale CLI failed: {0}")]
     Failed(String),
+    #[cfg(windows)]
+    #[error("Tailscale CLI did not respond within {0:?}")]
+    Timeout(Duration),
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -42,21 +47,30 @@ fn parse_ipv4(output: &str) -> Result<Ipv4Addr, TailscaleError> {
 }
 
 #[cfg(windows)]
-fn tailscale_output() -> Result<std::process::Output, TailscaleError> {
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[cfg(windows)]
+async fn run_tailscale(command_path: &str) -> Result<std::process::Output, TailscaleError> {
+    let mut command = tokio::process::Command::new(command_path);
+    command.args(["ip", "-4"]);
+    command.kill_on_drop(true);
+    tokio::time::timeout(COMMAND_TIMEOUT, command.output())
+        .await
+        .map_err(|_| TailscaleError::Timeout(COMMAND_TIMEOUT))?
+        .map_err(TailscaleError::Command)
+}
+
+#[cfg(windows)]
+async fn tailscale_output() -> Result<std::process::Output, TailscaleError> {
     use std::io::ErrorKind;
-    use std::process::Command;
 
     const DEFAULT_TAILSCALE_CLI: &str = r"C:\Program Files\Tailscale\tailscale.exe";
-    match Command::new(DEFAULT_TAILSCALE_CLI)
-        .args(["ip", "-4"])
-        .output()
-    {
+    match run_tailscale(DEFAULT_TAILSCALE_CLI).await {
         Ok(output) => Ok(output),
-        Err(error) if error.kind() == ErrorKind::NotFound => Command::new("tailscale.exe")
-            .args(["ip", "-4"])
-            .output()
-            .map_err(TailscaleError::Command),
-        Err(error) => Err(TailscaleError::Command(error)),
+        Err(TailscaleError::Command(error)) if error.kind() == ErrorKind::NotFound => {
+            run_tailscale("tailscale.exe").await
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -67,8 +81,8 @@ fn tailscale_output() -> Result<std::process::Output, TailscaleError> {
 /// Returns an error when the Tailscale CLI cannot report exactly one IPv4
 /// address.
 #[cfg(windows)]
-pub fn listen_address(port: u16) -> Result<SocketAddr, TailscaleError> {
-    let output = tailscale_output()?;
+pub async fn listen_address(port: u16) -> Result<SocketAddr, TailscaleError> {
+    let output = tailscale_output().await?;
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
         return Err(TailscaleError::Failed(if error.is_empty() {

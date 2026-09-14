@@ -12,8 +12,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Write-RenewalLog([string] $Message) {
-    $line = "$(Get-Date -Format o) $Message"
+function Write-RenewalLog([ValidateSet('INFO', 'ERROR')] [string] $Level, [string] $Message) {
+    $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $line = "$timestamp $Level [gpg-bridge-certificate-renewal-script] $Message"
     Add-Content -LiteralPath $LogPath -Value $line -Encoding utf8
     Write-Output $line
 }
@@ -32,11 +33,16 @@ if (-not [string]::IsNullOrWhiteSpace($logDirectory)) {
 }
 
 $temporaryCert = "$ServerCert.renewed-$([guid]::NewGuid().ToString('N')).pem"
+$exitCode = 0
 try {
-    Write-RenewalLog 'Requesting Step CA certificate renewal.'
-    & $StepExecutable ca renew $ServerCert $ServerKey --out $temporaryCert --ca-url $CaUrl.AbsoluteUri --root $RootCaCert
+    Write-RenewalLog -Level 'INFO' -Message 'Requesting Step CA certificate renewal.'
+    $renewalOutput = @(& $StepExecutable ca renew $ServerCert $ServerKey --out $temporaryCert --ca-url $CaUrl.AbsoluteUri --root $RootCaCert 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        throw "step ca renew failed with exit code $LASTEXITCODE."
+        $details = ($renewalOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join ' '
+        if ([string]::IsNullOrWhiteSpace($details)) {
+            throw "step ca renew failed with exit code $LASTEXITCODE."
+        }
+        throw "step ca renew failed with exit code ${LASTEXITCODE}: $details"
     }
 
     & $StepExecutable certificate verify --roots $RootCaCert $temporaryCert
@@ -56,18 +62,20 @@ try {
     }
 
     Move-Item -LiteralPath $temporaryCert -Destination $ServerCert -Force
-    Write-RenewalLog 'Installed verified renewed certificate; restarting GPG Bridge.'
+    Write-RenewalLog -Level 'INFO' -Message 'Installed verified renewed certificate; restarting GPG Bridge.'
     Restart-Service -Name $BridgeServiceName
-    Write-RenewalLog 'GPG Bridge restarted after certificate renewal.'
+    Write-RenewalLog -Level 'INFO' -Message 'GPG Bridge restarted after certificate renewal.'
 } catch {
     try {
-        Write-RenewalLog "Certificate renewal failed: $($_.Exception.Message)"
+        Write-RenewalLog -Level 'ERROR' -Message "Certificate renewal failed: $($_.Exception.Message)"
     } catch {
         Write-Error "Certificate renewal failed and could not be logged: $($_.Exception.Message)"
     }
-    throw
+    $exitCode = 1
 } finally {
     if (Test-Path -LiteralPath $temporaryCert) {
         Remove-Item -LiteralPath $temporaryCert -Force
     }
 }
+
+exit $exitCode

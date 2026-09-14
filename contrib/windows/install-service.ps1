@@ -7,6 +7,7 @@ param(
     [Parameter(Mandatory)] [string] $ClientCaCert,
     [Parameter(Mandatory)] [string] $ServerCert,
     [Parameter(Mandatory)] [string] $ServerKey,
+    [string] $LogPath,
     [string] $ServiceName = 'gpg-bridge',
     [int] $MaxConnections = 64,
     [System.Management.Automation.PSCredential] $Credential
@@ -15,6 +16,9 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
     throw "Executable does not exist: $Executable"
+}
+if ([string]::IsNullOrWhiteSpace($LogPath)) {
+    $LogPath = Join-Path (Split-Path -Parent $Executable) 'gpg-bridge.log'
 }
 if ([string]::IsNullOrWhiteSpace($ListenAddress) -ne $PSBoundParameters.ContainsKey('TailscaleListenPort')) {
     throw 'Specify exactly one of -ListenAddress or -TailscaleListenPort.'
@@ -44,6 +48,7 @@ $arguments += @(
     '--client-ca-cert', $ClientCaCert,
     '--server-cert', $ServerCert,
     '--server-key', $ServerKey,
+    '--log-path', $LogPath,
     '--max-connections', $MaxConnections
 )
 $quotedArguments = $arguments | ForEach-Object { Quote-ServiceArgument ([string] $_) }

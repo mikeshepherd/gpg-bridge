@@ -10,6 +10,8 @@ pub mod tailscale;
 pub mod tls;
 #[cfg(unix)]
 pub mod unix_socket;
+#[cfg(any(windows, test))]
+pub mod windows_logging;
 #[cfg(windows)]
 pub mod windows_renewal_service;
 #[cfg(windows)]

@@ -5,6 +5,17 @@ use gpg_bridge::{ServerAgent, ServerOptions, run_server};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+#[cfg(windows)]
+fn default_windows_service_log_path() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| {
+            path.parent()
+                .map(|directory| directory.join("gpg-bridge.log"))
+        })
+        .unwrap_or_else(|| PathBuf::from("gpg-bridge.log"))
+}
+
 #[derive(Debug, Parser)]
 #[clap(name = "gpg-bridge", version)]
 pub struct App {
@@ -98,6 +109,10 @@ pub struct ServerArgs {
     server_key: PathBuf,
     #[arg(long, default_value_t = 64)]
     max_connections: usize,
+    /// File that receives service startup and runtime logs on Windows.
+    #[cfg(windows)]
+    #[arg(long, default_value_os_t = default_windows_service_log_path())]
+    log_path: PathBuf,
 }
 
 #[cfg(windows)]
@@ -176,8 +191,23 @@ fn server_options(
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    pretty_env_logger::init();
     let cfg = App::parse();
+
+    #[cfg(windows)]
+    match &cfg.command {
+        Command::WindowsService { options } => {
+            gpg_bridge::windows_logging::init(&options.log_path, "gpg-bridge-service")?;
+        }
+        Command::WindowsRenewalService { options } => {
+            gpg_bridge::windows_logging::init(
+                &options.log_path,
+                "gpg-bridge-certificate-renewal-service",
+            )?;
+        }
+        Command::Server { .. } => pretty_env_logger::init(),
+    }
+    #[cfg(not(windows))]
+    pretty_env_logger::init();
 
     match cfg.command {
         Command::Server { options } => {
@@ -187,7 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             {
                 let (mut options, tailscale_listen_port) = server_options(options)?;
                 if let Some(port) = tailscale_listen_port {
-                    options.listen_address = gpg_bridge::tailscale::listen_address(port)?;
+                    options.listen_address = gpg_bridge::tailscale::listen_address(port).await?;
                 }
                 run_server(options).await?;
             }

@@ -83,8 +83,13 @@ fn run_service() -> windows_service::Result<()> {
         ServiceState::StartPending,
         ServiceControlAccept::empty(),
     ))?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(windows_service::Error::Winapi)?;
     if let Some(port) = service_options.tailscale_listen_port {
-        options.listen_address = crate::tailscale::listen_address(port)
+        options.listen_address = runtime
+            .block_on(crate::tailscale::listen_address(port))
             .map_err(|error| windows_service::Error::Winapi(std::io::Error::other(error)))?;
     }
     status_handle.set_service_status(status(ServiceState::Running, ServiceControlAccept::STOP))?;
@@ -94,10 +99,6 @@ fn run_service() -> windows_service::Result<()> {
         let _ = stop_receiver.recv();
         let _ = shutdown_sender.send(true);
     });
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(windows_service::Error::Winapi)?;
     if let Err(error) = runtime.block_on(server::run_server_until(options, &mut shutdown_receiver))
     {
         error!("bridge server terminated: {error}");

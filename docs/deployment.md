@@ -19,7 +19,9 @@ Run [install-service.ps1](../contrib/windows/install-service.ps1) manually in
 an elevated PowerShell session. It prompts for the Windows account that owns
 the already-running Gpg4win agent, then creates a service with automatic
 startup. Supply explicit absolute paths for the executable, redirect file,
-certificate material, and key. Do not run it as `LocalSystem`: that account
+certificate material, and key. The installer writes service messages to
+`gpg-bridge.log` alongside the executable; override this with `-LogPath` when
+needed. Do not run it as `LocalSystem`: that account
 will normally be unable to read the interactive user's redirect file.
 
 By default, provide `-ListenAddress <IP:PORT>` and the server binds exactly
@@ -28,7 +30,8 @@ that address. Alternatively, `-TailscaleListenPort <PORT>` adds
 `tailscale ip -4` to find the one active Tailscale IPv4 address and binds it
 to that port. The executable first uses the standard
 `C:\Program Files\Tailscale\tailscale.exe` installation, then falls back to
-`tailscale.exe` on `PATH`. It does not rebind while running; restart the
+`tailscale.exe` on `PATH`. Discovery times out after ten seconds rather than
+leaving the service pending indefinitely. It does not rebind while running; restart the
 service after a Tailscale address change.
 
 To remove the manually installed service, first stop it and then delete it:

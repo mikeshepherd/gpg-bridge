@@ -33,9 +33,43 @@
             "--enable-static"
           ];
         });
+        rustcWithoutDocs = pkgs':
+          let
+            buildPkgs = pkgs'.pkgsBuildBuild;
+            rustcUnwrapped = pkgs'.rustc.unwrapped;
+            defaultArgs = buildPkgs.lib.optionalString (
+              with rustcUnwrapped.stdenv.targetPlatform; isMusl && !isStatic
+            ) "-C target-feature=-crt-static";
+            mkRustWrapper = program: extraFlags: buildPkgs.writeShellScript "${program}-without-docs-wrapper" ''
+              defaultSysroot=(--sysroot ${rustcUnwrapped})
+              extraBefore=(${defaultArgs} "''${defaultSysroot[@]}")
+              extraAfter=(${extraFlags})
+
+              exec ${rustcUnwrapped}/bin/${program} "''${extraBefore[@]}" "$@" "''${extraAfter[@]}"
+            '';
+          in
+          buildPkgs.runCommand "${rustcUnwrapped.pname}-without-docs-wrapper-${rustcUnwrapped.version}" {
+            preferLocalBuild = true;
+            strictDeps = true;
+          } ''
+            mkdir -p $out/bin
+            ln -s ${rustcUnwrapped}/bin/* $out/bin
+            rm $out/bin/{rustc,rustdoc}
+            ln -s ${mkRustWrapper "rustc" "$NIX_RUSTFLAGS"} $out/bin/rustc
+            ln -s ${mkRustWrapper "rustdoc" "$NIX_RUSTDOCFLAGS"} $out/bin/rustdoc
+          '';
+        crossToolchainWithoutDocs = pkgs':
+          let
+            buildPkgs = pkgs'.pkgsBuildBuild;
+            rustc = rustcWithoutDocs pkgs';
+          in
+          buildPkgs.symlinkJoin {
+            name = "rust-toolchain-without-docs";
+            paths = [ pkgs'.cargo pkgs'.clippy rustc pkgs'.rustfmt ];
+          };
           pkgs = nixpkgs.legacyPackages.${system};
           craneLib = crane.mkLib pkgs;
-          craneLibCross = crane.mkLib pkgs-cross-mingw;
+          craneLibCross = (crane.mkLib pkgs-cross-mingw).overrideToolchain crossToolchainWithoutDocs;
           src = craneLib.cleanCargoSource self;
           commonArgs = {
             inherit src;
