@@ -51,8 +51,12 @@ sc.exe delete gpg-bridge-certificate-renewal
 
 An SCM process runs outside the interactive desktop, but the bridge only needs
 the redirect-file read permission and loopback connection to the already
-running agent. Any pinentry dialog remains the Gpg4win agent's responsibility
-in the logged-in user's session.
+running agent. It never starts `gpg-agent`: doing so from an SCM process would
+create a Session 0 agent that cannot display pinentry. Any pinentry dialog
+remains the Gpg4win agent's responsibility in the logged-in user's session.
+Ensure Gpg4win starts the agent at user logon; if the agent is unavailable, the
+bridge retries the redirect-file connection for fifteen seconds and then logs
+the failure for that client session.
 
 ## Unix server backend
 

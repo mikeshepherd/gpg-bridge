@@ -7,7 +7,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
-use tokio::process::Command;
 use tokio::time::{Instant, sleep, timeout};
 use zeroize::Zeroizing;
 
@@ -50,16 +49,7 @@ pub enum AgentError {
         #[source]
         source: io::Error,
     },
-    #[error("failed to start gpg-agent: {source}")]
-    Start {
-        #[source]
-        source: io::Error,
-    },
-    #[error("gpg-connect-agent did not complete within the startup timeout")]
-    StartTimeout,
-    #[error("gpg-connect-agent exited unsuccessfully")]
-    StartFailed,
-    #[error("local Gpg4win agent did not become ready within the startup window: {last_error}")]
+    #[error("interactive Gpg4win agent did not become ready within the retry window: {last_error}")]
     StartupWindowExpired { last_error: String },
 }
 
@@ -127,20 +117,6 @@ async fn load_metadata(path: &Path) -> Result<AgentMetadata, AgentError> {
     parse_metadata(&contents)
 }
 
-async fn start_agent() -> Result<(), AgentError> {
-    let mut command = Command::new("gpg-connect-agent");
-    command.arg("/bye").kill_on_drop(true);
-    let output = timeout(AGENT_CONNECT_TIMEOUT, command.output())
-        .await
-        .map_err(|_| AgentError::StartTimeout)?
-        .map_err(|source| AgentError::Start { source })?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(AgentError::StartFailed)
-    }
-}
-
 /// A connected local agent stream.
 pub enum AgentStream {
     /// A Gpg4win loopback connection after its nonce preface.
@@ -186,7 +162,19 @@ impl AgentConnector {
     }
 
     async fn connect_gpg4win(redirect_file: &Path) -> Result<AgentStream, AgentError> {
-        let deadline = Instant::now() + AGENT_STARTUP_WINDOW;
+        Self::connect_gpg4win_with_window(redirect_file, AGENT_STARTUP_WINDOW).await
+    }
+
+    /// Retries a Gpg4win redirect-file connection without starting an agent.
+    ///
+    /// A bridge may run as a Windows service, where starting `gpg-agent` would
+    /// create a Session 0 process that cannot display pinentry. The interactive
+    /// user session must own and start Gpg4win's agent.
+    async fn connect_gpg4win_with_window(
+        redirect_file: &Path,
+        retry_window: Duration,
+    ) -> Result<AgentStream, AgentError> {
+        let deadline = Instant::now() + retry_window;
         let mut last_error;
         loop {
             match load_metadata(redirect_file).await {
@@ -215,7 +203,6 @@ impl AgentConnector {
             if Instant::now() >= deadline {
                 break;
             }
-            let _ = start_agent().await;
             sleep(AGENT_RETRY_DELAY).await;
         }
         Err(AgentError::StartupWindowExpired {
@@ -326,5 +313,21 @@ mod tests {
         });
         drop(connector.connect().await.expect("second session"));
         assert_eq!(second_task.await.expect("second task"), [2; 16]);
+    }
+
+    #[tokio::test]
+    async fn stale_redirect_returns_an_agent_unavailable_error_without_starting_an_agent() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let redirect = directory.path().join("S.gpg-agent.extra");
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let port = listener.local_addr().expect("address").port();
+        drop(listener);
+        write_redirect(&redirect, port, [3; 16]).await;
+
+        let result = AgentConnector::connect_gpg4win_with_window(&redirect, Duration::ZERO).await;
+        assert!(matches!(
+            result,
+            Err(AgentError::StartupWindowExpired { .. })
+        ));
     }
 }
