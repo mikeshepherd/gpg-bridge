@@ -102,7 +102,14 @@ fn run_renewal(
     stop_receiver: &mpsc::Receiver<()>,
 ) -> Result<bool, std::io::Error> {
     let mut child = Command::new("powershell.exe")
-        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-File"])
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
         .arg(&options.renewal_script)
         .arg("-StepExecutable")
         .arg(&options.step_executable)

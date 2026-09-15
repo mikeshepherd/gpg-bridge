@@ -58,6 +58,53 @@ Ensure Gpg4win starts the agent at user logon; if the agent is unavailable, the
 bridge retries the redirect-file connection for fifteen seconds and then logs
 the failure for that client session.
 
+### Windows server installer and upgrades
+
+[install-server.ps1](../contrib/windows/install-server.ps1) installs a complete
+Windows server from an SCP-hosted Windows ZIP bundle. Run it from an elevated
+PowerShell session while logged in as the user whose Gpg4win agent owns the
+redirect file. The first run downloads and validates the ZIP, prompts once for
+that user's service credential, obtains the initial Step CA certificate, and
+starts both `gpg-bridge` and `gpg-bridge-certificate-renewal`.
+
+It uses the existing Windows OpenSSH `scp` client and its normal SSH
+configuration and authentication. The SCP source and all non-secret settings
+are written to `C:\ProgramData\GpgBridge\state\install-config.json`; the
+credential is never written to disk. Before running the command, ensure the
+account already has a running Gpg4win agent. By default the installer uses the
+fingerprint-pinned Step root it bootstraps as the trusted client CA; pass
+`-ClientCaCert` only when Unix client certificates use a separate CA.
+
+```powershell
+.\install-server.ps1 `
+  -BundleScpSource 'deploy@build-host:/srv/releases/gpg-bridge-windows.zip' `
+  -AgentExtraSocket 'C:\Users\operator\AppData\Roaming\gnupg\S.gpg-agent.extra' `
+  -ListenAddress '0.0.0.0:4321' `
+  -CaUrl 'https://ca.example.internal' `
+  -CaFingerprint '<verified-64-hex-character-root-fingerprint>' `
+  -Provisioner 'windows-server' `
+  -CommonName 'windows-host.example.internal' `
+  -DnsName 'windows-host.example.internal'
+```
+
+Use `-TailscaleListenPort 4321` instead of `-ListenAddress` to use the
+Tailscale address-discovery mode. The Step CLI installation prompt and any
+provisioner authentication remain interactive; neither secret is persisted.
+
+To update the executable and bundled scripts from the configured SCP source,
+run the installer again with no configuration arguments:
+
+```powershell
+.\install-server.ps1
+```
+
+An update downloads and validates the new ZIP before stopping services. It
+then stops and deletes the renewal service followed by the bridge service,
+replaces only `C:\ProgramData\GpgBridge\bundle`, and reinstalls both services.
+Certificates, logs, and configuration remain under `state` and are preserved.
+Pass `-ReplaceCertificate` only when a new initial certificate is intended;
+ordinary upgrades retain the existing certificate and key.
+
 ## Unix server backend
 
 For Linux testing or a Unix server deployment, use `server --agent-socket <path>` with a local GnuPG restricted extra socket. This backend opens that Unix socket directly and does not send a Gpg4win nonce. It is mutually exclusive with Windows-only `--agent-extra-socket`; use one backend per server process.

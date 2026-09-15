@@ -36,13 +36,23 @@ $temporaryCert = "$ServerCert.renewed-$([guid]::NewGuid().ToString('N')).pem"
 $exitCode = 0
 try {
     Write-RenewalLog -Level 'INFO' -Message 'Requesting Step CA certificate renewal.'
-    $renewalOutput = @(& $StepExecutable ca renew $ServerCert $ServerKey --out $temporaryCert --ca-url $CaUrl.AbsoluteUri --root $RootCaCert 2>&1)
-    if ($LASTEXITCODE -ne 0) {
+    # Windows PowerShell 5.1 promotes redirected native stderr to ErrorRecord.
+    # step writes its successful "certificate saved" message to stderr, so
+    # temporarily allow that output and decide success from the process status.
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $renewalOutput = @(& $StepExecutable ca renew $ServerCert $ServerKey --out $temporaryCert --ca-url $CaUrl.AbsoluteUri --root $RootCaCert 2>&1)
+        $renewalExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($renewalExitCode -ne 0) {
         $details = ($renewalOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ }) -join ' '
         if ([string]::IsNullOrWhiteSpace($details)) {
-            throw "step ca renew failed with exit code $LASTEXITCODE."
+            throw "step ca renew failed with exit code $renewalExitCode."
         }
-        throw "step ca renew failed with exit code ${LASTEXITCODE}: $details"
+        throw "step ca renew failed with exit code ${renewalExitCode}: $details"
     }
 
     & $StepExecutable certificate verify --roots $RootCaCert $temporaryCert

@@ -85,6 +85,7 @@
             mkdir -p staging
             cp ${windowsPackage}/bin/gpg-bridge.exe staging/
             cp ${self}/contrib/windows/install-service.ps1 staging/
+            cp ${./contrib/windows/install-server.ps1} staging/install-server.ps1
             cp ${self}/contrib/windows/request-step-ca-server-certificate.ps1 staging/
             cp ${self}/contrib/windows/renew-step-ca-server-certificate.ps1 staging/
             cp ${self}/contrib/windows/install-certificate-renewal-service.ps1 staging/
